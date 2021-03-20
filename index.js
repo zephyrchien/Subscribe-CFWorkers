@@ -6,6 +6,8 @@ import {
 	constants as padding
 } from "crypto";
 
+import { v4 as uuid_v4 } from "uuid";
+
 const NOT_FOUND_404 = new Response(null, {
 	status: 404,
 	statusText: "Not Found"
@@ -34,6 +36,27 @@ function base64_decode(text) {
 async function md5sum(text) {
 	const digest = await crypto.subtle.digest({ name: "MD5" }, Buffer.from(text));
 	return Buffer.from(digest).toString("hex");
+}
+
+function create_passwd(n) {
+	let buf = [];
+	for (let i = 0, t = Math.ceil(n / 8); i < t; i++) {
+		buf.push(
+			Math.random()
+				.toString(36)
+				.substr(2, 8)
+		);
+	}
+	buf = buf
+		.join("")
+		.substr(0, n)
+		.split("");
+	for (let i = 0; i < n; i++) {
+		if (Math.random() > 0.5) {
+			buf[i] = buf[i].toUpperCase();
+		}
+	}
+	return buf.join("");
 }
 
 async function real_ip(headers) {
@@ -137,16 +160,101 @@ async function fetch_endpoint(t, api_url) {
 	return JSON.parse(r_data_plain);
 }
 
-async function save_endpoint(name) {
+async function fetch_save_endpoint(name) {
 	const t = name.split("_")[0];
 	const endpoint_config_base64 = await ENDPOINT_CONFIG.get(name);
 	const endpoint_config = base64_decode(
 		endpoint_config_base64.replace("\n", "")
 	);
 	const api_url = endpoint_config["api"];
-	const endpoint = await fetch_endpoint(t, api_url);
+	const response = await fetch_endpoint(t, api_url);
+	if (!response["code"]) return;
+	const endpoint = response["data"];
 	const endpoint_base64 = base64(endpoint);
 	await ENDPOINT.put(name, endpoint_base64);
+}
+
+async function put_endpoint(t, api_url, payload) {
+	const future = await Promise.all([
+		CONFIG.get("rsa_key"),
+		CONFIG.get("user_agent")
+	]);
+	const [rsa_key, user_agent] = future;
+
+	const data = JSON.stringify({
+		t: t,
+		cmd: "mod",
+		data: payload
+	});
+	const data_enc = server_encrypt(
+		{
+			key: rsa_key,
+			padding: padding.RSA_PKCS1_PADDING
+		},
+		Buffer.from(data)
+	);
+
+	let r_data_enc;
+	try {
+		const response = await fetch(api_url, {
+			method: "POST",
+			headers: {
+				"user-agent": user_agent,
+				"content-type": "application/json",
+				connection: "close"
+			},
+			redirect: "follow",
+			body: data_enc.toString("base64")
+		});
+		r_data_enc = await response.text();
+	} catch (err) {
+		return null;
+	}
+
+	let r_data_plain;
+	try {
+		r_data_plain = server_decrypt(
+			{
+				key: rsa_key,
+				padding: padding.RSA_PKCS1_PADDING
+			},
+			Buffer.from(r_data_enc, "base64")
+		);
+	} catch (_) {
+		return null;
+	}
+	return JSON.parse(r_data_plain);
+}
+
+async function put_save_endpoint(name) {
+	const t = name.split("_")[0];
+	const future = await Promise.all([
+		ENDPOINT.get(name),
+		ENDPOINT_CONFIG.get(name)
+	]);
+	const [endpoint_base64, endpoint_config_base64] = future;
+	const endpoint = base64_decode(endpoint_base64.replace("\n", ""));
+	const endpoint_config = base64_decode(
+		endpoint_config_base64.replace("\n", "")
+	);
+
+	const api_url = endpoint_config["api"];
+	let payload;
+	if (t == "v2") {
+		const uuid = uuid_v4();
+		payload = { id: uuid };
+	} else if (t == "ss") {
+		const n = Math.ceil(12 * Math.random()) + 12;
+		const passwd = create_passwd(n);
+		payload = { password: passwd };
+	}
+	const response = await put_endpoint(t, api_url, payload);
+	if (!response["code"]) return;
+	for (const k in payload) {
+		endpoint[k] = payload[k];
+	}
+	const new_endpoint_base64 = base64(endpoint);
+	await ENDPOINT.put(name, new_endpoint_base64);
 }
 
 async function do_create_share_link(name, inbound, endpoint, endpoint_manual) {
@@ -208,6 +316,7 @@ async function create_share_link(name, inbound) {
 	const endpoint_config = base64_decode(
 		endpoint_config_base64.replace("\n", "")
 	);
+	if (endpoint == null) return null;
 	const link = await do_create_share_link(
 		name,
 		inbound,
@@ -226,6 +335,10 @@ async function create_subscribe_table(t, inbound) {
 		tasks.push(create_share_link(name, inbound));
 	}
 	const future = await Promise.all(tasks);
+	let index;
+	while ((index = future.indexOf(null)) != -1) {
+		future.splice(index, 1);
+	}
 	return base64(future.join("\n"));
 }
 
@@ -261,12 +374,14 @@ async function handleRequest(request) {
 
 async function handleScheduled(event) {
 	const time = new Date(event.scheduledTime);
+	const hour = time.getUTCHours();
+	const task_func = hour != 18 ? fetch_save_endpoint : put_save_endpoint;
 	const list = await ENDPOINT_CONFIG.list();
 	const keys = list["keys"];
 	let tasks = [];
 	for (let i = 0, len = keys.length; i < len; i++) {
 		const name = keys[i]["name"];
-		tasks.push(save_endpoint(name));
+		tasks.push(task_func(name));
 	}
 	await Promise.all(tasks);
 }
