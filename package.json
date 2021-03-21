@@ -6,7 +6,7 @@
 	"main": "index.js",
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1",
-		"format": "prettier --use-tabs --semi --write '**/*.{js,css,json,md}'"
+		"format": "prettier --use-tabs --semi --single-quote --write '**/*.{js,css,json,md}'"
 	},
 	"author": "zephyr <i@zephyr.moe>",
 	"license": "MIT",
