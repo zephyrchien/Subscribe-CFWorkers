@@ -301,7 +301,7 @@ function do_create_share_link(name, inbound, endpoint, endpoint_manual) {
 		link = 'vmess://' + base64(data);
 	} else if (t == 'ss') {
 		const account = base64(`${data.method}:${data.password}`);
-		link = `ss://${account}@${inbound}:${data.server_port}#${data.tag}`;
+		link = `ss://${account}@${data.server}:${data.server_port}#${data.tag}`;
 	}
 	return link;
 }
