@@ -70,6 +70,12 @@ async function real_ip(headers) {
 }
 
 async function isplookup(ip) {
+	// cache
+	const ip_hash = await md5sum(ip);
+	const isp_cache = await IP2ISP.get(ip_hash);
+	if (isp_cache && CHANNEL.includes(isp_cache)) return isp_cache;
+
+	// lookup
 	const api = await CONFIG.get('iplookup_api');
 	let ip_info;
 	try {
@@ -89,6 +95,7 @@ async function isplookup(ip) {
 	if (!ip_info['code']) {
 		return 'cmcc';
 	}
+
 	const isp_zh_cn = ip_info['isp'];
 	let isp;
 	switch (isp_zh_cn) {
@@ -105,6 +112,7 @@ async function isplookup(ip) {
 			isp = 'cmcc';
 			break;
 	}
+	IP2ISP.put(ip_hash, isp);
 	return isp;
 }
 
@@ -162,16 +170,33 @@ async function fetch_endpoint(t, api_url) {
 
 async function fetch_save_endpoint(name) {
 	const t = name.split('_')[0];
-	const endpoint_config_base64 = await ENDPOINT_CONFIG.get(name);
+	const future = await Promise.all([
+		ENDPOINT.get(name),
+		ENDPOINT_CONFIG.get(name)
+	]);
+	const [endpoint_base64, endpoint_config_base64] = future;
 	const endpoint_config = base64_decode(
 		endpoint_config_base64.replace('\n', '')
 	);
 	const api_url = endpoint_config['api'];
 	const response = await fetch_endpoint(t, api_url);
-	if (!response['code']) return;
-	const endpoint = response['data'];
-	const endpoint_base64 = base64(endpoint);
-	await ENDPOINT.put(name, endpoint_base64);
+	if (!response || !response['code']) {
+		await ENDPOINT.put(name, 'failed');
+		return;
+	}
+	const new_endpoint = response['data'];
+	let b = false;
+	if (!endpoint_base64) {
+		b = true;
+	} else {
+		const endpoint = base64_decode(endpoint_base64.replace('\n', ''));
+		for (const k in endpoint) {
+			if (endpoint[k] != new_endpoint[k]) b = true;
+		}
+	}
+	if (!b) return;
+	const new_endpoint_base64 = base64(new_endpoint);
+	await ENDPOINT.put(name, new_endpoint_base64);
 }
 
 async function put_endpoint(t, api_url, payload) {
@@ -249,7 +274,7 @@ async function put_save_endpoint(name) {
 		payload = { password: passwd };
 	}
 	const response = await put_endpoint(t, api_url, payload);
-	if (!response['code']) return;
+	if (!response || !response['code']) return;
 	for (const k in payload) {
 		endpoint[k] = payload[k];
 	}
@@ -408,7 +433,9 @@ async function handleScheduled(event) {
 	const hour = time.getUTCHours();
 	const minute = time.getMinutes();
 	const task_func =
-		hour == 18 && minute < 30 ? put_save_endpoint : fetch_save_endpoint;
+		hour == 18 && minute > 10 && minute <= 30
+			? put_save_endpoint
+			: fetch_save_endpoint;
 	const list = await ENDPOINT_CONFIG.list();
 	const keys = list['keys'];
 	let tasks = [];

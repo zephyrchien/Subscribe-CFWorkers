@@ -7,7 +7,8 @@ zone_id = ""
 kv_namespaces = [
 	{ binding = "ENDPOINT", preview_id = "", id = "" },
 	{ binding = "CONFIG", preview_id = "", id = "" },
-	{ binding = "ENDPOINT_CONFIG", preview_id = "", id = "" }
+	{ binding = "ENDPOINT_CONFIG", preview_id = "", id = "" },
+	{ binding = "IP2ISP", preview_id = "", id = "" }
 ]
 [triggers]
 crons = ["*/20 * * * *"]
