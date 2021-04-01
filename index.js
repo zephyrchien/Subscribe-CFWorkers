@@ -70,8 +70,13 @@ async function real_ip(headers) {
 }
 
 async function isplookup(ip) {
-	// cache
-	const ip_hash = await md5sum(ip);
+	// from cache
+	const ip_bytes = ip.split('.');
+	// accept ipv4 only
+	if (ip_bytes.length != 4) return 'cmcc';
+	ip_bytes[3] = '0';
+	const v4_ip_range = ip_bytes.join('.');
+	const ip_hash = await md5sum(v4_ip_range);
 	const isp_cache = await IP2ISP.get(ip_hash);
 	if (isp_cache && CHANNEL.includes(isp_cache)) return isp_cache;
 
@@ -175,6 +180,7 @@ async function fetch_save_endpoint(name) {
 		ENDPOINT_CONFIG.get(name)
 	]);
 	const [endpoint_base64, endpoint_config_base64] = future;
+
 	const endpoint_config = base64_decode(
 		endpoint_config_base64.replace('\n', '')
 	);
@@ -186,7 +192,7 @@ async function fetch_save_endpoint(name) {
 	}
 	const new_endpoint = response['data'];
 	let b = false;
-	if (!endpoint_base64) {
+	if (!endpoint_base64 || endpoint_base64 == 'failed') {
 		b = true;
 	} else {
 		const endpoint = base64_decode(endpoint_base64.replace('\n', ''));
@@ -364,6 +370,7 @@ async function create_share_link(name, inbound) {
 		ENDPOINT_CONFIG.get(name)
 	]);
 	const [endpoint_base64, endpoint_config_base64] = future;
+	if (endpoint_base64 == 'failed') return null;
 	const endpoint = base64_decode(endpoint_base64.replace('\n', ''));
 	const endpoint_config = base64_decode(
 		endpoint_config_base64.replace('\n', '')
