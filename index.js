@@ -370,7 +370,7 @@ async function create_share_link(name, inbound) {
 		ENDPOINT_CONFIG.get(name)
 	]);
 	const [endpoint_base64, endpoint_config_base64] = future;
-	if (endpoint_base64 == 'failed') return null;
+	if (!endpoint_base64 || endpoint_base64 == 'failed') return null;
 	const endpoint = base64_decode(endpoint_base64.replace('\n', ''));
 	const endpoint_config = base64_decode(
 		endpoint_config_base64.replace('\n', '')
@@ -440,7 +440,7 @@ async function handleScheduled(event) {
 	const hour = time.getUTCHours();
 	const minute = time.getMinutes();
 	const task_func =
-		hour == 18 && minute > 10 && minute <= 30
+		hour == 20 && minute > 10 && minute <= 30
 			? put_save_endpoint
 			: fetch_save_endpoint;
 	const list = await ENDPOINT_CONFIG.list();
